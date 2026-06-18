@@ -245,7 +245,7 @@ def kpi_card(label, value, sub="", color="blue"):
 def make_option_label(code, desc):
     code = str(code).strip()
     desc = str(desc).strip()
-    return f"{code} — {desc}" if desc else code
+    return f"{code} | {desc}" if desc else code
 
 def select_code_from_df(df, code_col, desc_col, label, key):
     if df.empty:
@@ -255,8 +255,37 @@ def select_code_from_df(df, code_col, desc_col, label, key):
     opts = sorted(opts_df["_label"].dropna().unique())
     if not opts:
         return None
-    selected_label = st.selectbox(label, opts, key=key, help="Puoi digitare sia il codice sia parte della descrizione.")
-    return selected_label.split(" — ")[0] if selected_label else None
+    selected_label = st.selectbox(
+        label,
+        opts,
+        index=None,
+        placeholder="Scrivi codice o descrizione...",
+        key=key,
+        help="Digita parte del codice o della descrizione: l'elenco si filtra automaticamente."
+    )
+    return selected_label.split(" | ")[0] if selected_label else None
+
+def line_by_year(df, x_col, y_col, title, custom_cols=None, height=420):
+    custom_cols = custom_cols or []
+    if df.empty:
+        st.warning("Nessun dato disponibile.")
+        return
+    d = df.copy()
+    d[x_col] = d[x_col].astype(int).astype(str)
+    fig = px.line(
+        d.sort_values(x_col),
+        x=x_col,
+        y=y_col,
+        markers=True,
+        title=title,
+        custom_data=custom_cols
+    )
+    if custom_cols:
+        hover = "".join([f"<br>{col}: %{{customdata[{i}]}}" for i, col in enumerate(custom_cols)])
+        fig.update_traces(hovertemplate="<b>%{x}</b><br>Valore: %{y:,.2f}" + hover + "<extra></extra>")
+    fig.update_xaxes(type="category")
+    layout(fig, height)
+    st.plotly_chart(fig, use_container_width=True)
 
 def top_bar(df, x, y, title, hover_cols=None, height=420):
     hover_cols = hover_cols or []
@@ -689,9 +718,7 @@ with tabs[0]:
     if codice_sel:
         prod_code = prod_search_base[prod_search_base["CODART"] == codice_sel]
         annual = prod_code.groupby(["Anno"], as_index=False).agg(Kg=("Kg","sum"), N_Lotti=("LOTTO_FINITO","nunique"))
-        fig = px.bar(annual, x="Anno", y="Kg", title=f"Produzione annua - {codice_sel}", text_auto=".2s", custom_data=["N_Lotti"])
-        fig.update_traces(hovertemplate="<b>%{x}</b><br>Kg: %{y:,.2f}<br>Lotti: %{customdata[0]}<extra></extra>")
-        layout(fig, 420); st.plotly_chart(fig, use_container_width=True)
+        line_by_year(annual, "Anno", "Kg", f"Produzione annua - {codice_sel}", ["N_Lotti"], 420)
         st.dataframe(prod_code[["CODART","Descrizione","LOTTO_FINITO","Data","Kg","Famiglia","Uso","Titolato"]].sort_values("Data", ascending=False), use_container_width=True, height=260)
 
 # Reparti
@@ -784,10 +811,7 @@ with tabs[2]:
             if codice_fam:
                 code_data = data[data["CODART"] == codice_fam]
                 ann = code_data.groupby("Anno", as_index=False).agg(Kg=("Kg","sum"), N_Lotti=("LOTTO_FINITO","nunique"))
-                fig = px.bar(ann, x="Anno", y="Kg", title=f"Produzione annua - {codice_fam}", text_auto=".2s", custom_data=["N_Lotti"])
-                fig.update_traces(hovertemplate="<b>%{x}</b><br>Kg: %{y:,.2f}<br>Lotti: %{customdata[0]}<extra></extra>")
-                layout(fig, 390)
-                st.plotly_chart(fig, use_container_width=True)
+                line_by_year(ann, "Anno", "Kg", f"Produzione annua - {codice_fam}", ["N_Lotti"], 390)
                 st.dataframe(code_data[["CODART","Descrizione","LOTTO_FINITO","Data","Kg","Famiglia","Uso","Titolato"]].sort_values("Data", ascending=False), use_container_width=True, height=260)
 
 # Formulazioni
@@ -998,9 +1022,18 @@ with tabs[5]:
         layout(fig, 480)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("### Top articoli venduti")
-        top_art = filtered_ven.groupby(["CODART","DESART","Famiglia"], as_index=False).agg(Kg=("QTA","sum"), Fatturato=("IMPORTO","sum"), N_Clienti=("RAGSOC","nunique")).sort_values("Fatturato", ascending=False).head(30)
-        st.dataframe(top_art, use_container_width=True, height=420)
+        st.markdown("### Top 20 vendite per famiglia")
+        tv1, tv2 = st.columns(2)
+        with tv1:
+            top_fluidi_v = filtered_ven[filtered_ven["Famiglia"]=="Fluido"].groupby(["CODART","DESART","Famiglia"], as_index=False).agg(
+                Kg=("QTA","sum"), Fatturato=("IMPORTO","sum"), N_Clienti=("RAGSOC","nunique")
+            ).sort_values("Fatturato", ascending=False).head(20)
+            top_bar(top_fluidi_v, "Fatturato", "CODART", "Top 20 fluidi venduti", ["DESART","Kg","N_Clienti"], 520)
+        with tv2:
+            top_secchi_v = filtered_ven[filtered_ven["Famiglia"]=="Estratto secco finito"].groupby(["CODART","DESART","Famiglia"], as_index=False).agg(
+                Kg=("QTA","sum"), Fatturato=("IMPORTO","sum"), N_Clienti=("RAGSOC","nunique")
+            ).sort_values("Fatturato", ascending=False).head(20)
+            top_bar(top_secchi_v, "Fatturato", "CODART", "Top 20 estratti secchi finiti venduti", ["DESART","Kg","N_Clienti"], 520)
 
         st.markdown("### Ricerca articolo venduto")
         ven_code_view = filtered_ven.copy()
