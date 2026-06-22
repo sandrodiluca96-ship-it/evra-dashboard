@@ -1313,6 +1313,31 @@ with tabs[3]:
                     default="Altro componente"
                 )
 
+                # Secco puro: kg prodotto - kg maltodestrina/carrier.
+                # Lo mostro sulle righe MDR. Se ci sono più MDR, ripartisco il secco puro
+                # proporzionalmente ai kg droga utilizzati.
+                malto_totale = materiali.loc[
+                    materiali["Tipo materiale"].eq("Maltodestrina / carrier"),
+                    "Kg_Materiale"
+                ].sum()
+
+                secco_puro_totale = qta_finito - malto_totale if qta_finito > 0 else np.nan
+                if pd.notna(secco_puro_totale) and secco_puro_totale < 0:
+                    secco_puro_totale = np.nan
+
+                materiali["Secco puro kg"] = np.nan
+                materiali["% secco puro su prodotto"] = np.nan
+
+                mdr_mask = materiali["COD_COMP"].astype(str).str.startswith("MDR")
+                mdr_totale = materiali.loc[mdr_mask, "Kg_Materiale"].sum()
+
+                if pd.notna(secco_puro_totale) and mdr_totale > 0 and qta_finito > 0:
+                    quota_mdr = materiali.loc[mdr_mask, "Kg_Materiale"] / mdr_totale
+                    materiali.loc[mdr_mask, "Secco puro kg"] = secco_puro_totale * quota_mdr
+                    materiali.loc[mdr_mask, "% secco puro su prodotto"] = (
+                        materiali.loc[mdr_mask, "Secco puro kg"] / qta_finito * 100
+                    )
+
                 materiali = materiali.sort_values("Kg_Materiale", ascending=False)
 
                 fig = px.bar(
@@ -1321,19 +1346,19 @@ with tabs[3]:
                     y="COD_COMP",
                     orientation="h",
                     title=f"Composizione lotto {lotto_sel} - % su prodotto",
-                    custom_data=["DES_COMP","Kg_Materiale","Tipo materiale"],
+                    custom_data=["DES_COMP","Kg_Materiale","Tipo materiale","Secco puro kg","% secco puro su prodotto"],
                     text="% su prodotto"
                 )
                 fig.update_traces(
                     texttemplate="%{text:.1f}%",
-                    hovertemplate="<b>%{y}</b><br>Descrizione: %{customdata[0]}<br>Kg: %{customdata[1]:,.2f}<br>% su prodotto: %{x:.2f}%<br>Tipo: %{customdata[2]}<extra></extra>"
+                    hovertemplate="<b>%{y}</b><br>Descrizione: %{customdata[0]}<br>Kg: %{customdata[1]:,.2f}<br>% su prodotto: %{x:.2f}%<br>Tipo: %{customdata[2]}<br>Secco puro kg: %{customdata[3]:,.2f}<br>% secco puro: %{customdata[4]:.2f}%<extra></extra>"
                 )
                 fig.update_xaxes(ticksuffix="%")
                 layout(fig, max(420, min(760, 120 + 32 * len(materiali))))
                 st.plotly_chart(fig, use_container_width=True)
 
                 st.dataframe(
-                    materiali[["COD_COMP","DES_COMP","Tipo materiale","Kg_Materiale","% su prodotto"]],
+                    materiali[["COD_COMP","DES_COMP","Tipo materiale","Kg_Materiale","% su prodotto","Secco puro kg","% secco puro su prodotto"]],
                     use_container_width=True,
                     height=420,
                     column_config={
